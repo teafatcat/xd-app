@@ -1,8 +1,8 @@
-"""Claude AI investment analysis for YouTube transcripts."""
+"""Gemini AI investment analysis for YouTube transcripts."""
 
 import json
 import os
-import anthropic
+import google.generativeai as genai
 
 SYSTEM_PROMPT = """你是一位專業的投資分析師助手，專門分析投資類 YouTube 影片的內容。
 你能夠理解繁體中文、粵語，以及各種投資術語。
@@ -53,27 +53,27 @@ ANALYSIS_PROMPT = """請分析以下 YouTube 影片逐字稿，提取投資相�
 
 
 def analyze_transcript(title: str, transcript: str) -> dict:
-    """Send transcript to Claude and return structured investment analysis."""
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    """Send transcript to Gemini and return structured investment analysis."""
+    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-pro",
+        system_instruction=SYSTEM_PROMPT,
+    )
 
-    # Trim transcript if too long (keep ~12k tokens worth)
+    # Trim transcript if too long
     max_chars = 40000
     if len(transcript) > max_chars:
         transcript = transcript[:max_chars] + "\n...[逐字稿已截斷]"
 
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2048,
-        system=SYSTEM_PROMPT,
-        messages=[
-            {
-                "role": "user",
-                "content": ANALYSIS_PROMPT.format(title=title, transcript=transcript),
-            }
-        ],
+    response = model.generate_content(
+        ANALYSIS_PROMPT.format(title=title, transcript=transcript),
+        generation_config=genai.GenerationConfig(
+            temperature=0.2,
+            max_output_tokens=2048,
+        ),
     )
 
-    raw = message.content[0].text.strip()
+    raw = response.text.strip()
 
     # Strip markdown code fences if present
     if raw.startswith("```"):
