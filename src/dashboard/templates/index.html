@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>XD App - 投資策略分析儀表板</title>
+  <title>XD App - 投資策略圖表</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
@@ -12,185 +13,224 @@
     header h1 { font-size: 20px; font-weight: 700; color: #f8fafc; }
     header span { font-size: 13px; color: #64748b; }
 
-    .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
 
-    .input-card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 24px; margin-bottom: 28px; }
-    .input-card h2 { font-size: 15px; font-weight: 600; color: #94a3b8; margin-bottom: 14px; text-transform: uppercase; letter-spacing: 0.05em; }
-    .input-row { display: flex; gap: 10px; }
-    .input-row input { flex: 1; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 10px 14px; color: #e2e8f0; font-size: 14px; outline: none; }
-    .input-row input:focus { border-color: #6366f1; }
-    .btn { background: #6366f1; color: #fff; border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+    .card h2 { font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 14px; }
+
+    textarea { width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px; color: #e2e8f0; font-size: 14px; resize: vertical; outline: none; font-family: inherit; }
+    textarea:focus { border-color: #6366f1; }
+
+    .ticker-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .ticker-input { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 8px 12px; color: #e2e8f0; font-size: 14px; width: 120px; outline: none; }
+    .ticker-input:focus { border-color: #6366f1; }
+    .add-btn { background: #1e3a5f; color: #60a5fa; border: 1px solid #1e40af; border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+    .add-btn:hover { background: #1e40af; }
+
+    .ticker-tag { display: flex; align-items: center; gap: 6px; background: #1e3a5f; border: 1px solid #1e40af; border-radius: 999px; padding: 4px 12px; font-size: 13px; color: #93c5fd; }
+    .ticker-tag button { background: none; border: none; color: #64748b; cursor: pointer; font-size: 15px; line-height: 1; padding: 0; }
+    .ticker-tag button:hover { color: #f87171; }
+
+    .btn { background: #6366f1; color: #fff; border: none; border-radius: 8px; padding: 11px 24px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 16px; }
     .btn:hover { background: #4f46e5; }
     .btn:disabled { background: #334155; cursor: not-allowed; }
 
-    .status { margin-top: 12px; font-size: 13px; color: #64748b; min-height: 18px; }
+    .status { margin-top: 10px; font-size: 13px; color: #64748b; min-height: 18px; }
     .status.error { color: #f87171; }
-    .status.success { color: #4ade80; }
 
-    .result-card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 24px; margin-bottom: 16px; }
-    .result-card h3 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 4px; }
-    .result-meta { font-size: 12px; color: #64748b; margin-bottom: 16px; }
+    .prices-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+    .price-item { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 10px 16px; }
+    .price-item .sym { font-size: 13px; font-weight: 700; color: #f1f5f9; }
+    .price-item .val { font-size: 18px; font-weight: 700; color: #4ade80; margin-top: 2px; }
 
-    .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-    .tag { padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-    .tag.bull { background: #14532d; color: #4ade80; }
-    .tag.bear { background: #450a0a; color: #f87171; }
-    .tag.neutral { background: #1e3a5f; color: #60a5fa; }
-    .tag.stock { background: #2d1b69; color: #a78bfa; }
-    .tag.crypto { background: #1a2e05; color: #a3e635; }
-    .tag.etf { background: #431407; color: #fb923c; }
+    .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .chart-card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; overflow: hidden; }
+    .chart-card h3 { font-size: 13px; font-weight: 600; color: #64748b; padding: 14px 16px 0; text-transform: uppercase; letter-spacing: 0.05em; }
+    .chart-box { padding: 8px; }
 
-    .section { margin-bottom: 16px; }
-    .section-title { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
-    .section-body { font-size: 14px; color: #cbd5e1; line-height: 1.6; }
-
-    .tickers-grid { display: flex; flex-wrap: wrap; gap: 8px; }
-    .ticker-item { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 8px 12px; font-size: 13px; }
-    .ticker-item .sym { font-weight: 700; color: #f1f5f9; }
-    .ticker-item .sent { font-size: 11px; margin-top: 2px; }
-    .sent.看多 { color: #4ade80; }
-    .sent.看空 { color: #f87171; }
-    .sent.中性 { color: #94a3b8; }
-
-    .points-list { list-style: none; }
-    .points-list li { padding: 4px 0; font-size: 14px; color: #cbd5e1; }
-    .points-list li::before { content: "▸ "; color: #6366f1; }
-
-    .risks-list { list-style: none; }
-    .risks-list li { padding: 4px 0; font-size: 14px; color: #fbbf24; }
-    .risks-list li::before { content: "⚠ "; }
-
-    .disclaimer { font-size: 11px; color: #475569; margin-top: 12px; font-style: italic; }
-
-    .empty { text-align: center; padding: 60px 20px; color: #475569; }
-    .empty p { font-size: 15px; }
+    .trend-tabs { display: flex; gap: 4px; padding: 10px 16px 0; flex-wrap: wrap; }
+    .tab { padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; background: #0f172a; color: #64748b; border: 1px solid #334155; }
+    .tab.active { background: #312e81; color: #a5b4fc; border-color: #4338ca; }
 
     .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #334155; border-top-color: #6366f1; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    .hint { font-size: 12px; color: #475569; margin-top: 8px; }
+    .extracted-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    .extracted-tag { background: #1a2e05; color: #a3e635; border: 1px solid #365314; border-radius: 999px; padding: 3px 10px; font-size: 12px; }
+
+    @media (max-width: 768px) { .charts-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
   <header>
     <h1>XD App</h1>
-    <span>投資策略分析儀表板</span>
+    <span>投資策略圖表分析</span>
   </header>
 
   <div class="container">
-    <div class="input-card">
-      <h2>分析新影片</h2>
-      <div class="input-row">
-        <input type="text" id="urlInput" placeholder="貼上 YouTube 影片網址..." />
-        <button class="btn" id="analyzeBtn" onclick="analyzeVideo()">開始分析</button>
+    <div class="card">
+      <h2>貼上 Gemini / NotebookLM 分析內容</h2>
+      <textarea id="analysisText" rows="6" placeholder="將 Gemini Pro 或 NotebookLM 的分析文字貼在這裡，系統會自動識別股票代號...&#10;&#10;或直接在下方手動輸入股票代號。"></textarea>
+      <p class="hint">支援格式：美股（AAPL）、台股（2330.TW）、港股（0700.HK）</p>
+
+      <div style="margin-top:16px">
+        <div style="font-size:13px;color:#94a3b8;margin-bottom:8px">手動新增股票代號：</div>
+        <div class="ticker-row" id="tickerTags"></div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <input type="text" class="ticker-input" id="tickerInput" placeholder="AAPL / 2330.TW" />
+          <button class="add-btn" onclick="addTicker()">+ 新增</button>
+        </div>
       </div>
+
+      <button class="btn" id="analyzeBtn" onclick="runAnalysis()">生成圖表</button>
       <div class="status" id="status"></div>
     </div>
 
-    <div id="newResult"></div>
+    <div id="resultsSection" style="display:none">
+      <div class="prices-bar" id="pricesBar"></div>
 
-    <div id="historySection"></div>
+      <div id="extractedInfo" style="margin-bottom:16px;display:none">
+        <span style="font-size:12px;color:#64748b">自動識別到：</span>
+        <div class="extracted-tags" id="extractedTags"></div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card" id="trendCard">
+          <h3>股票走勢</h3>
+          <div class="trend-tabs" id="trendTabs"></div>
+          <div class="chart-box" id="trendChart"></div>
+        </div>
+        <div class="chart-card">
+          <h3>投資組合配置</h3>
+          <div class="chart-box" id="portfolioChart"></div>
+        </div>
+        <div class="chart-card">
+          <h3>風險報酬分析</h3>
+          <div class="chart-box" id="riskChart"></div>
+        </div>
+        <div class="chart-card" id="comparisonCard">
+          <h3>相對表現比較</h3>
+          <div class="chart-box" id="comparisonChart"></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
-    const HISTORY = {{ analyses | tojson }};
-    async function analyzeVideo() {
-      const url = document.getElementById('urlInput').value.trim();
-      if (!url) return;
+    let tickers = [];
+    let chartsData = {};
+    let activeTicker = null;
+
+    document.getElementById('tickerInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') addTicker();
+    });
+
+    function addTicker() {
+      const input = document.getElementById('tickerInput');
+      const val = input.value.trim().toUpperCase();
+      if (!val || tickers.includes(val)) { input.value = ''; return; }
+      tickers.push(val);
+      input.value = '';
+      renderTags();
+    }
+
+    function removeTicker(t) {
+      tickers = tickers.filter(x => x !== t);
+      renderTags();
+    }
+
+    function renderTags() {
+      document.getElementById('tickerTags').innerHTML = tickers.map(t =>
+        `<div class="ticker-tag">${t}<button onclick="removeTicker('${t}')">×</button></div>`
+      ).join('');
+    }
+
+    async function runAnalysis() {
+      const text = document.getElementById('analysisText').value.trim();
+      if (!text && tickers.length === 0) {
+        setStatus('請貼上分析文字或輸入股票代號', true);
+        return;
+      }
       const btn = document.getElementById('analyzeBtn');
-      const status = document.getElementById('status');
       btn.disabled = true;
-      status.className = 'status';
-      status.innerHTML = '<span class="spinner"></span>正在抓取影片逐字稿並分析，請稍候（約 30-60 秒）...';
+      setStatus('<span class="spinner"></span>正在抓取股票數據並生成圖表...');
 
       try {
-        const res = await fetch('/api/analyze', {
+        const res = await fetch('/api/analyze_text', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url })
+          body: JSON.stringify({ text, tickers })
         });
         const data = await res.json();
-        if (data.error) {
-          status.className = 'status error';
-          status.textContent = '錯誤：' + data.error;
-        } else {
-          status.className = 'status success';
-          status.textContent = data.cached ? '已載入快取結果' : '分析完成！';
-          const title = data.title || url;
-          document.getElementById('newResult').innerHTML = buildCard(title, '', data.result);
-          document.getElementById('urlInput').value = '';
-        }
-      } catch (e) {
-        status.className = 'status error';
-        status.textContent = '網路錯誤：' + e.message;
+        if (data.error) { setStatus(data.error, true); btn.disabled = false; return; }
+
+        chartsData = data.charts;
+        renderResults(data);
+        setStatus('');
+      } catch(e) {
+        setStatus('網路錯誤：' + e.message, true);
       }
       btn.disabled = false;
     }
 
-    // Render history on load
-    (function() {
-      const sec = document.getElementById('historySection');
-      if (!HISTORY || HISTORY.length === 0) {
-        sec.innerHTML = '<div class="empty"><p>尚無分析記錄，貼上 YouTube 網址開始分析</p></div>';
-        return;
+    function renderResults(data) {
+      document.getElementById('resultsSection').style.display = 'block';
+
+      // Prices
+      document.getElementById('pricesBar').innerHTML = data.tickers.map(t => {
+        const p = data.prices[t];
+        return `<div class="price-item"><div class="sym">${t}</div><div class="val">${p != null ? p.toLocaleString() : 'N/A'}</div></div>`;
+      }).join('');
+
+      // Auto-extracted tickers
+      if (data.auto_extracted && data.auto_extracted.length > 0) {
+        document.getElementById('extractedInfo').style.display = 'block';
+        document.getElementById('extractedTags').innerHTML = data.auto_extracted.map(t =>
+          `<span class="extracted-tag">${t}</span>`
+        ).join('');
       }
-      sec.innerHTML = HISTORY.map(a => buildCard(a.title, a.published_at, a.raw || {})).join('');
-    })();
 
-    document.getElementById('urlInput').addEventListener('keydown', e => {
-      if (e.key === 'Enter') analyzeVideo();
-    });
+      // Trend chart tabs
+      const trendTickers = Object.keys(data.charts.trends || {});
+      if (trendTickers.length > 0) {
+        document.getElementById('trendTabs').innerHTML = trendTickers.map((t, i) =>
+          `<div class="tab ${i===0?'active':''}" onclick="showTrend('${t}', this)">${t}</div>`
+        ).join('');
+        activeTicker = trendTickers[0];
+        showTrend(activeTicker, document.querySelector('.tab'));
+      }
 
-    function sentClass(s) {
-      if (s === '看多') return 'bull';
-      if (s === '看空') return 'bear';
-      return 'neutral';
+      // Portfolio
+      if (data.charts.portfolio) {
+        Plotly.newPlot('portfolioChart', JSON.parse(data.charts.portfolio));
+      }
+
+      // Risk/Return
+      if (data.charts.risk_return) {
+        Plotly.newPlot('riskChart', JSON.parse(data.charts.risk_return));
+      }
+
+      // Comparison
+      if (data.charts.comparison) {
+        Plotly.newPlot('comparisonChart', JSON.parse(data.charts.comparison));
+        document.getElementById('comparisonCard').style.display = 'block';
+      } else {
+        document.getElementById('comparisonCard').style.display = 'none';
+      }
     }
 
-    function typeClass(t) {
-      if (!t) return 'stock';
-      t = t.toLowerCase();
-      if (t.includes('etf')) return 'etf';
-      if (t.includes('加密') || t.includes('crypto') || t.includes('幣')) return 'crypto';
-      return 'stock';
+    function showTrend(ticker, el) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      el.classList.add('active');
+      const fig = JSON.parse(chartsData.trends[ticker]);
+      Plotly.newPlot('trendChart', fig);
     }
 
-    function buildCard(title, date, r) {
-      const tickers = (r.tickers || []).map(tk => `
-        <div class="ticker-item">
-          <div class="sym">${tk.symbol}</div>
-          <div class="sent ${tk.sentiment}">${tk.sentiment} · ${tk.type || ''}</div>
-          <div style="font-size:11px;color:#64748b;margin-top:2px">${tk.reason || ''}</div>
-        </div>`).join('');
-
-      const keyPts = (r.key_points || []).map(p => `<li>${p}</li>`).join('');
-      const risks = (r.risks || []).map(r => `<li>${r}</li>`).join('');
-
-      return `
-        <div class="result-card">
-          <h3>${title}</h3>
-          <div class="result-meta">${date} · 時間維度：${r.time_horizon || '-'} · 可信度：${r.confidence || '-'}</div>
-
-          <div class="tags">
-            <span class="tag ${sentClass(r.sentiment)}">${r.sentiment || '中性'}</span>
-          </div>
-
-          ${tickers ? `<div class="section"><div class="section-title">提及標的</div><div class="tickers-grid">${tickers}</div></div>` : ''}
-
-          <div class="section">
-            <div class="section-title">市場展望</div>
-            <div class="section-body">${r.market_outlook || '-'}</div>
-          </div>
-
-          ${keyPts ? `<div class="section"><div class="section-title">重點摘要</div><ul class="points-list">${keyPts}</ul></div>` : ''}
-
-          <div class="section">
-            <div class="section-title">建議策略</div>
-            <div class="section-body">${r.strategy || '-'}</div>
-          </div>
-
-          ${risks ? `<div class="section"><div class="section-title">風險提示</div><ul class="risks-list">${risks}</ul></div>` : ''}
-
-          <div class="disclaimer">${r.disclaimer || ''}</div>
-        </div>`;
+    function setStatus(msg, isError = false) {
+      const s = document.getElementById('status');
+      s.innerHTML = msg;
+      s.className = 'status' + (isError ? ' error' : '');
     }
   </script>
 </body>
