@@ -1,9 +1,8 @@
-"""Gemini AI investment analysis for YouTube transcripts."""
+"""OpenRouter AI investment analysis for YouTube transcripts."""
 
 import json
 import os
-from google import genai
-from google.genai import types
+from openai import OpenAI
 
 SYSTEM_PROMPT = """你是一位專業的投資分析師助手，專門分析投資類 YouTube 影片的內容。
 你能夠理解繁體中文、粵語，以及各種投資術語。
@@ -54,25 +53,28 @@ ANALYSIS_PROMPT = """請分析以下 YouTube 影片逐字稿，提取投資相�
 
 
 def analyze_transcript(title: str, transcript: str) -> dict:
-    """Send transcript to Gemini and return structured investment analysis."""
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    """Send transcript to OpenRouter and return structured investment analysis."""
+    client = OpenAI(
+        api_key=os.environ["OPENROUTER_API_KEY"],
+        base_url="https://openrouter.ai/api/v1",
+    )
 
     # Trim transcript if too long
     max_chars = 40000
     if len(transcript) > max_chars:
         transcript = transcript[:max_chars] + "\n...[逐字稿已截斷]"
 
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=ANALYSIS_PROMPT.format(title=title, transcript=transcript),
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-            temperature=0.2,
-            max_output_tokens=2048,
-        ),
+    response = client.chat.completions.create(
+        model="google/gemini-2.0-flash-exp:free",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": ANALYSIS_PROMPT.format(title=title, transcript=transcript)},
+        ],
+        max_tokens=2048,
+        temperature=0.2,
     )
 
-    raw = response.text.strip()
+    raw = response.choices[0].message.content.strip()
 
     # Strip markdown code fences if present
     if raw.startswith("```"):

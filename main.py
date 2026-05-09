@@ -19,10 +19,10 @@ load_dotenv()
 
 
 def _check_api_key():
-    if not os.environ.get("GEMINI_API_KEY"):
-        print("錯誤：請設定 GEMINI_API_KEY 環境變數")
-        print("  複製 .env.example 為 .env 並填入您的 Gemini API Key")
-        print("  取得方式：https://aistudio.google.com → Get API key")
+    if not os.environ.get("OPENROUTER_API_KEY"):
+        print("錯誤：請設定 OPENROUTER_API_KEY 環境變數")
+        print("  複製 .env.example 為 .env 並填入您的 OpenRouter API Key")
+        print("  取得方式：https://openrouter.ai → Keys → Create Key（免費）")
         sys.exit(1)
 
 
