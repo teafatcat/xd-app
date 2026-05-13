@@ -59,6 +59,38 @@
     .extracted-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
     .extracted-tag { background: #1a2e05; color: #a3e635; border: 1px solid #365314; border-radius: 999px; padding: 3px 10px; font-size: 12px; }
 
+    /* History panel */
+    .history-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; background: none; border: 1px solid #334155; border-radius: 8px; padding: 8px 16px; color: #94a3b8; font-size: 13px; margin-bottom: 20px; }
+    .history-toggle:hover { border-color: #6366f1; color: #a5b4fc; }
+    .history-toggle .arrow { transition: transform 0.2s; }
+    .history-toggle.open .arrow { transform: rotate(180deg); }
+
+    #historyPanel { display: none; }
+    #historyPanel.open { display: block; }
+
+    .history-list { display: flex; flex-direction: column; gap: 10px; }
+    .history-item { background: #0f172a; border: 1px solid #1e3a5f; border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: border-color 0.15s; }
+    .history-item:hover { border-color: #6366f1; }
+    .history-item .h-title { font-size: 14px; font-weight: 600; color: #e2e8f0; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .history-item .h-meta { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .history-item .h-time { font-size: 12px; color: #475569; }
+    .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+    .badge-bull { background: #14532d; color: #4ade80; }
+    .badge-bear { background: #450a0a; color: #f87171; }
+    .badge-neutral { background: #1e293b; color: #94a3b8; }
+    .h-tickers { display: flex; gap: 4px; flex-wrap: wrap; }
+    .h-ticker { background: #1e3a5f; color: #93c5fd; border-radius: 999px; padding: 2px 8px; font-size: 11px; }
+
+    .history-detail { margin-top: 12px; border-top: 1px solid #1e3a5f; padding-top: 12px; display: none; }
+    .history-detail.open { display: block; }
+    .detail-row { font-size: 13px; color: #94a3b8; margin-bottom: 6px; }
+    .detail-row strong { color: #cbd5e1; }
+    .key-points { list-style: none; padding: 0; margin: 6px 0 0 0; }
+    .key-points li { font-size: 13px; color: #94a3b8; padding: 2px 0; }
+    .key-points li::before { content: "▸ "; color: #6366f1; }
+
+    .history-empty { text-align: center; padding: 32px; color: #475569; font-size: 14px; }
+
     @media (max-width: 768px) { .charts-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -69,6 +101,21 @@
   </header>
 
   <div class="container">
+
+    <!-- History Panel -->
+    <button class="history-toggle" id="historyToggle" onclick="toggleHistory()">
+      <span>歷史分析紀錄</span>
+      <span class="arrow">▼</span>
+    </button>
+    <div id="historyPanel">
+      <div class="card">
+        <h2>過去分析紀錄</h2>
+        <div class="history-list" id="historyList">
+          <div class="history-empty">載入中...</div>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <h2>貼上 Gemini / NotebookLM 分析內容</h2>
       <textarea id="analysisText" rows="6" placeholder="將 Gemini Pro 或 NotebookLM 的分析文字貼在這裡，系統會自動識別股票代號...&#10;&#10;或直接在下方手動輸入股票代號。"></textarea>
@@ -231,6 +278,67 @@
       const s = document.getElementById('status');
       s.innerHTML = msg;
       s.className = 'status' + (isError ? ' error' : '');
+    }
+
+    // --- History ---
+    let historyLoaded = false;
+
+    async function toggleHistory() {
+      const btn = document.getElementById('historyToggle');
+      const panel = document.getElementById('historyPanel');
+      const isOpen = panel.classList.toggle('open');
+      btn.classList.toggle('open', isOpen);
+      if (isOpen && !historyLoaded) await loadHistory();
+    }
+
+    async function loadHistory() {
+      try {
+        const res = await fetch('/api/history?limit=30');
+        const data = await res.json();
+        historyLoaded = true;
+        renderHistory(data);
+      } catch(e) {
+        document.getElementById('historyList').innerHTML = `<div class="history-empty">載入失敗：${e.message}</div>`;
+      }
+    }
+
+    function renderHistory(items) {
+      const el = document.getElementById('historyList');
+      if (!items.length) {
+        el.innerHTML = '<div class="history-empty">尚無分析紀錄。使用 CLI 指令分析影片後會顯示在這裡。</div>';
+        return;
+      }
+      el.innerHTML = items.map((item, i) => {
+        const sentiment = item.sentiment || '';
+        const badgeClass = sentiment.includes('多') || sentiment.includes('樂') ? 'badge-bull'
+          : sentiment.includes('空') || sentiment.includes('悲') ? 'badge-bear' : 'badge-neutral';
+        const tickers = (item.tickers || []).slice(0, 5).map(t =>
+          `<span class="h-ticker">${t.symbol || t}</span>`).join('');
+        const date = item.analyzed_at ? item.analyzed_at.replace('T', ' ').slice(0, 16) : '';
+        const raw = item.raw || {};
+        const keyPoints = (raw.key_points || []).slice(0, 4).map(p => `<li>${p}</li>`).join('');
+        const risks = (raw.risks || []).slice(0, 2).map(r => `<li>⚠ ${r}</li>`).join('');
+
+        return `<div class="history-item" onclick="toggleDetail(${i})">
+          <div class="h-title">${item.title || item.video_id}</div>
+          <div class="h-meta">
+            <span class="h-time">${date}</span>
+            ${sentiment ? `<span class="badge ${badgeClass}">${sentiment}</span>` : ''}
+            ${item.market_outlook ? `<span class="badge badge-neutral">${item.market_outlook}</span>` : ''}
+            <div class="h-tickers">${tickers}</div>
+          </div>
+          <div class="history-detail" id="detail-${i}">
+            ${item.strategy ? `<div class="detail-row"><strong>建議策略：</strong>${item.strategy}</div>` : ''}
+            ${keyPoints ? `<div class="detail-row"><strong>重點：</strong><ul class="key-points">${keyPoints}</ul></div>` : ''}
+            ${risks ? `<div class="detail-row"><strong>風險：</strong><ul class="key-points">${risks}</ul></div>` : ''}
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    function toggleDetail(i) {
+      const el = document.getElementById(`detail-${i}`);
+      el.classList.toggle('open');
     }
   </script>
 </body>

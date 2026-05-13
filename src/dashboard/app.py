@@ -92,6 +92,25 @@ def api_analyze_text():
     })
 
 
+@app.route("/api/history")
+def api_history():
+    limit = request.args.get("limit", 20, type=int)
+    analyses = get_all_analyses(limit)
+    results = []
+    for a in analyses:
+        results.append({
+            "video_id": a["video_id"],
+            "title": a["title"],
+            "analyzed_at": a["analyzed_at"],
+            "sentiment": a["sentiment"],
+            "market_outlook": a["market_outlook"],
+            "strategy": a["strategy"],
+            "tickers": a["tickers"],
+            "raw": a["raw"],
+        })
+    return jsonify(results)
+
+
 if __name__ == "__main__":
     init_db()
     app.run(debug=True, port=5000)
