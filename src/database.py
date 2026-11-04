@@ -1,16 +1,43 @@
 import sqlite3
 import json
-from datetime import datetime
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent.parent / "data" / "xd_app.db"
 
 
+@contextmanager
 def get_conn():
-    DB_PATH.parent.mkdir(exist_ok=True)
+    """Yield a connection that commits on success, rolls back on error, and is always closed."""
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
+
+
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _loads(value, default):
+    if not value:
+        return default
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _row_to_dict(row) -> dict:
+    d = dict(row)
+    d["tickers"] = _loads(d.get("tickers"), [])
+    d["raw"] = _loads(d.get("raw_json"), {})
+    return d
 
 
 def init_db():
@@ -43,7 +70,7 @@ def save_video(video_id: str, channel_id: str, title: str, published_at: str, tr
         conn.execute(
             """INSERT OR REPLACE INTO videos (id, channel_id, title, published_at, transcript, analyzed_at)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (video_id, channel_id, title, published_at, transcript, datetime.utcnow().isoformat()),
+            (video_id, channel_id, title, published_at, transcript, _utcnow()),
         )
 
 
@@ -54,7 +81,7 @@ def save_analysis(video_id: str, result: dict):
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 video_id,
-                datetime.utcnow().isoformat(),
+                _utcnow(),
                 json.dumps(result.get("tickers", []), ensure_ascii=False),
                 result.get("sentiment", ""),
                 result.get("market_outlook", ""),
@@ -72,13 +99,20 @@ def get_all_analyses(limit: int = 20) -> list[dict]:
                ORDER BY a.analyzed_at DESC LIMIT ?""",
             (limit,),
         ).fetchall()
-        results = []
-        for row in rows:
-            d = dict(row)
-            d["tickers"] = json.loads(d["tickers"]) if d["tickers"] else []
-            d["raw"] = json.loads(d["raw_json"]) if d["raw_json"] else {}
-            results.append(d)
-        return results
+        return [_row_to_dict(row) for row in rows]
+
+
+def get_analysis_by_video(video_id: str) -> dict | None:
+    """Return the most recent analysis for a video, or None."""
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT a.*, v.title, v.published_at
+               FROM analyses a JOIN videos v ON a.video_id = v.id
+               WHERE a.video_id = ?
+               ORDER BY a.analyzed_at DESC, a.id DESC LIMIT 1""",
+            (video_id,),
+        ).fetchone()
+        return _row_to_dict(row) if row else None
 
 
 def video_exists(video_id: str) -> bool:

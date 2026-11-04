@@ -5,8 +5,9 @@ import subprocess
 import json
 from dataclasses import dataclass
 
-from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound
+from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+
+YTDLP_TIMEOUT_SECONDS = 60
 
 
 @dataclass
@@ -39,17 +40,20 @@ def get_channel_latest_videos(channel_url: str, max_videos: int = 5) -> list[dic
         "--flat-playlist",
         f"--playlist-end={max_videos}",
         "--no-warnings",
+        "--",  # end of options: a URL starting with "-" must not be parsed as a flag
         channel_url,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    if result.returncode != 0:
-        raise RuntimeError(f"yt-dlp error: {result.stderr[:300]}")
-
+    result = _run_ytdlp(cmd)
     videos = []
     for line in result.stdout.strip().splitlines():
         if not line:
             continue
-        data = json.loads(line)
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not data.get("id"):
+            continue
         videos.append({
             "video_id": data.get("id", ""),
             "title": data.get("title", ""),
@@ -65,7 +69,7 @@ def get_transcript(video_id: str, lang_priority: list[str] | None = None) -> str
         lang_priority = ["zh-TW", "zh-HK", "zh", "zh-Hans", "en"]
 
     try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        transcript_list = _list_transcripts(video_id)
 
         # Try manual transcripts first
         for lang in lang_priority:
@@ -93,8 +97,39 @@ def get_transcript(video_id: str, lang_priority: list[str] | None = None) -> str
     raise RuntimeError(f"Could not fetch any transcript for {video_id}")
 
 
+def _list_transcripts(video_id: str):
+    """List transcripts across youtube-transcript-api versions.
+
+    >=1.0 removed the ``list_transcripts`` classmethod in favour of an
+    instance method ``YouTubeTranscriptApi().list()``.
+    """
+    if hasattr(YouTubeTranscriptApi, "list_transcripts"):
+        return YouTubeTranscriptApi.list_transcripts(video_id)
+    return YouTubeTranscriptApi().list(video_id)
+
+
+def _snippet_text(entry) -> str:
+    # 0.6.x returns dicts; >=1.0 returns FetchedTranscriptSnippet objects.
+    if isinstance(entry, dict):
+        return entry.get("text") or ""
+    return getattr(entry, "text", "") or ""
+
+
 def _join_transcript(entries) -> str:
-    return " ".join(entry["text"] for entry in entries if entry.get("text"))
+    texts = (_snippet_text(e) for e in entries)
+    return " ".join(t for t in texts if t)
+
+
+def _run_ytdlp(cmd: list[str]) -> subprocess.CompletedProcess:
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=YTDLP_TIMEOUT_SECONDS)
+    except FileNotFoundError:
+        raise RuntimeError("找不到 yt-dlp，請先安裝（pip install yt-dlp）")
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"yt-dlp 逾時（>{YTDLP_TIMEOUT_SECONDS} 秒）")
+    if result.returncode != 0:
+        raise RuntimeError(f"yt-dlp error: {result.stderr[:300]}")
+    return result
 
 
 def fetch_single_video(url: str) -> VideoInfo:
@@ -109,11 +144,12 @@ def fetch_single_video(url: str) -> VideoInfo:
         "--no-playlist",
         f"https://www.youtube.com/watch?v={video_id}",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    if result.returncode != 0:
-        raise RuntimeError(f"yt-dlp error: {result.stderr[:300]}")
+    result = _run_ytdlp(cmd)
 
-    data = json.loads(result.stdout)
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"無法解析 yt-dlp 輸出：{e}")
     transcript = get_transcript(video_id)
 
     return VideoInfo(

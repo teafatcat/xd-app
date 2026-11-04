@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from openai import OpenAI
 
 SYSTEM_PROMPT = """你是一位專業的投資分析師助手，專門分析投資類 YouTube 影片的內容。
@@ -52,20 +53,101 @@ ANALYSIS_PROMPT = """請分析以下 YouTube 影片逐字稿，提取投資相�
 只回覆 JSON，不要有其他文字。"""
 
 
+DEFAULT_MODEL = "google/gemini-2.0-flash-exp:free"
+MAX_TRANSCRIPT_CHARS = 40000
+REQUEST_TIMEOUT_SECONDS = 120
+
+_FENCE_RE = re.compile(r"```(?:json|JSON)?\s*(.*?)```", re.DOTALL)
+_LIST_FIELDS = ("tickers", "key_points", "risks")
+_STR_FIELDS = ("sentiment", "market_outlook", "strategy", "time_horizon", "confidence", "disclaimer")
+
+
+class AnalysisParseError(ValueError):
+    """Raised when the LLM response cannot be turned into an analysis dict."""
+
+
+def parse_llm_json(raw: str | None) -> dict:
+    """Parse the LLM reply into a normalized analysis dict.
+
+    Handles markdown code fences (with or without a language tag), leading or
+    trailing prose around the JSON object, and missing/mistyped fields.
+    Raises AnalysisParseError if no JSON object can be recovered.
+    """
+    if raw is None or not str(raw).strip():
+        raise AnalysisParseError("LLM 回傳空白內容")
+    text = str(raw).strip()
+
+    candidates = [m.group(1).strip() for m in _FENCE_RE.finditer(text)]
+    candidates.append(text)
+
+    decoder = json.JSONDecoder()
+    for candidate in candidates:
+        try:
+            obj = json.loads(candidate)
+        except json.JSONDecodeError:
+            # Fall back to the first decodable JSON object inside the text.
+            obj = None
+            start = candidate.find("{")
+            while start != -1:
+                try:
+                    obj, _ = decoder.raw_decode(candidate, start)
+                    break
+                except json.JSONDecodeError:
+                    start = candidate.find("{", start + 1)
+        if isinstance(obj, dict):
+            return normalize_analysis(obj)
+
+    snippet = text[:200].replace("\n", " ")
+    raise AnalysisParseError(f"無法解析 LLM 回傳的 JSON：{snippet}")
+
+
+def normalize_analysis(obj: dict) -> dict:
+    """Coerce fields to the types the rest of the app expects."""
+    result = dict(obj)
+    for field in _LIST_FIELDS:
+        value = result.get(field)
+        if value is None:
+            value = []
+        elif not isinstance(value, list):
+            value = [value]
+        result[field] = value
+
+    tickers = []
+    for t in result["tickers"]:
+        if isinstance(t, dict):
+            tickers.append(t)
+        elif isinstance(t, str) and t.strip():
+            tickers.append({"symbol": t.strip()})
+    result["tickers"] = tickers
+    result["key_points"] = [str(p) for p in result["key_points"] if p is not None]
+    result["risks"] = [str(r) for r in result["risks"] if r is not None]
+
+    for field in _STR_FIELDS:
+        value = result.get(field)
+        if value is not None and not isinstance(value, str):
+            result[field] = str(value)
+    return result
+
+
 def analyze_transcript(title: str, transcript: str) -> dict:
     """Send transcript to OpenRouter and return structured investment analysis."""
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("未設定 OPENROUTER_API_KEY")
+
     client = OpenAI(
-        api_key=os.environ["OPENROUTER_API_KEY"],
+        api_key=api_key,
         base_url="https://openrouter.ai/api/v1",
+        timeout=REQUEST_TIMEOUT_SECONDS,
+        max_retries=2,
     )
 
     # Trim transcript if too long
-    max_chars = 40000
-    if len(transcript) > max_chars:
-        transcript = transcript[:max_chars] + "\n...[逐字稿已截斷]"
+    if len(transcript) > MAX_TRANSCRIPT_CHARS:
+        transcript = transcript[:MAX_TRANSCRIPT_CHARS] + "\n...[逐字稿已截斷]"
 
     response = client.chat.completions.create(
-        model="google/gemini-2.0-flash-exp:free",
+        model=os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL),
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": ANALYSIS_PROMPT.format(title=title, transcript=transcript)},
@@ -74,13 +156,6 @@ def analyze_transcript(title: str, transcript: str) -> dict:
         temperature=0.2,
     )
 
-    raw = response.choices[0].message.content.strip()
-
-    # Strip markdown code fences if present
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
-
-    return json.loads(raw)
+    if not response.choices:
+        raise AnalysisParseError("LLM 未回傳任何結果")
+    return parse_llm_json(response.choices[0].message.content)

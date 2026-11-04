@@ -28,11 +28,24 @@ def _check_api_key():
 
 def cmd_analyze(url: str):
     _check_api_key()
-    from src.database import init_db, save_video, save_analysis, video_exists, get_all_analyses
-    from src.youtube_fetcher import fetch_single_video
+    from src.database import init_db, save_video, save_analysis, get_analysis_by_video
+    from src.youtube_fetcher import extract_video_id, fetch_single_video
     from src.analyzer import analyze_transcript
 
     init_db()
+
+    try:
+        video_id = extract_video_id(url)
+    except ValueError as e:
+        print(f"錯誤：{e}")
+        sys.exit(1)
+
+    cached = get_analysis_by_video(video_id)
+    if cached:
+        print(f"標題：{cached.get('title', '')}")
+        print("此影片已分析過，顯示快取結果：")
+        _print_result(cached["raw"])
+        return
 
     print(f"正在抓取影片資訊：{url}")
     try:
@@ -43,14 +56,6 @@ def cmd_analyze(url: str):
 
     print(f"標題：{video.title}")
     print(f"逐字稿長度：{len(video.transcript)} 字")
-
-    if video_exists(video.video_id):
-        print("此影片已分析過，顯示快取結果：")
-        analyses = get_all_analyses(50)
-        for a in analyses:
-            if a["video_id"] == video.video_id:
-                _print_result(a["raw"])
-                return
 
     print("正在分析逐字稿...")
     try:
@@ -123,7 +128,7 @@ def cmd_history(limit: int = 10):
 
 
 def cmd_serve():
-    _check_api_key()
+    # The dashboard does not call the LLM, so no API key is required here.
     from src.database import init_db
     init_db()
     print("啟動 Web Dashboard：http://127.0.0.1:5000")
@@ -140,6 +145,8 @@ def _print_result(r: dict):
     if tickers:
         print("\n提及標的：")
         for t in tickers:
+            if not isinstance(t, dict):
+                t = {"symbol": str(t)}
             print(f"  {t.get('symbol','?')} [{t.get('type','')}] {t.get('sentiment','')} - {t.get('reason','')}")
 
     pts = r.get("key_points", [])
