@@ -122,6 +122,24 @@
     let chartsData = {};
     let activeTicker = null;
 
+    // Escape untrusted strings before inserting them via innerHTML.
+    function esc(value) {
+      return String(value)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // Delegated handlers instead of inline onclick="...('${t}')", which allowed
+    // a crafted ticker to break out of the JS string / HTML attribute.
+    document.getElementById('tickerTags').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-ticker]');
+      if (btn) removeTicker(btn.dataset.ticker);
+    });
+    document.getElementById('trendTabs').addEventListener('click', e => {
+      const tab = e.target.closest('.tab[data-ticker]');
+      if (tab) showTrend(tab.dataset.ticker, tab);
+    });
+
     document.getElementById('tickerInput').addEventListener('keydown', e => {
       if (e.key === 'Enter') addTicker();
     });
@@ -142,7 +160,7 @@
 
     function renderTags() {
       document.getElementById('tickerTags').innerHTML = tickers.map(t =>
-        `<div class="ticker-tag">${t}<button onclick="removeTicker('${t}')">×</button></div>`
+        `<div class="ticker-tag">${esc(t)}<button type="button" data-ticker="${esc(t)}" aria-label="移除">×</button></div>`
       ).join('');
     }
 
@@ -154,7 +172,7 @@
       }
       const btn = document.getElementById('analyzeBtn');
       btn.disabled = true;
-      setStatus('<span class="spinner"></span>正在抓取股票數據並生成圖表...');
+      setStatus('正在抓取股票數據並生成圖表...', false, true);
 
       try {
         const res = await fetch('/api/analyze_text', {
@@ -162,8 +180,10 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text, tickers })
         });
-        const data = await res.json();
-        if (data.error) { setStatus(data.error, true); btn.disabled = false; return; }
+        let data;
+        try { data = await res.json(); }
+        catch (_) { setStatus(`伺服器回應錯誤（HTTP ${res.status}）`, true); btn.disabled = false; return; }
+        if (!res.ok || data.error) { setStatus(data.error || `伺服器錯誤（HTTP ${res.status}）`, true); btn.disabled = false; return; }
 
         chartsData = data.charts;
         renderResults(data);
@@ -180,14 +200,15 @@
       // Prices
       document.getElementById('pricesBar').innerHTML = data.tickers.map(t => {
         const p = data.prices[t];
-        return `<div class="price-item"><div class="sym">${t}</div><div class="val">${p != null ? p.toLocaleString() : 'N/A'}</div></div>`;
+        const val = typeof p === 'number' ? p.toLocaleString() : 'N/A';
+        return `<div class="price-item"><div class="sym">${esc(t)}</div><div class="val">${esc(val)}</div></div>`;
       }).join('');
 
       // Auto-extracted tickers
       if (data.auto_extracted && data.auto_extracted.length > 0) {
         document.getElementById('extractedInfo').style.display = 'block';
         document.getElementById('extractedTags').innerHTML = data.auto_extracted.map(t =>
-          `<span class="extracted-tag">${t}</span>`
+          `<span class="extracted-tag">${esc(t)}</span>`
         ).join('');
       }
 
@@ -195,10 +216,10 @@
       const trendTickers = Object.keys(data.charts.trends || {});
       if (trendTickers.length > 0) {
         document.getElementById('trendTabs').innerHTML = trendTickers.map((t, i) =>
-          `<div class="tab ${i===0?'active':''}" onclick="showTrend('${t}', this)">${t}</div>`
+          `<div class="tab ${i===0?'active':''}" data-ticker="${esc(t)}">${esc(t)}</div>`
         ).join('');
         activeTicker = trendTickers[0];
-        showTrend(activeTicker, document.querySelector('.tab'));
+        showTrend(activeTicker, document.querySelector('#trendTabs .tab'));
       }
 
       // Portfolio
@@ -227,9 +248,16 @@
       Plotly.newPlot('trendChart', fig);
     }
 
-    function setStatus(msg, isError = false) {
+    // Uses textContent: error messages may echo user input and must not be parsed as HTML.
+    function setStatus(msg, isError = false, loading = false) {
       const s = document.getElementById('status');
-      s.innerHTML = msg;
+      s.textContent = '';
+      if (loading) {
+        const sp = document.createElement('span');
+        sp.className = 'spinner';
+        s.appendChild(sp);
+      }
+      s.appendChild(document.createTextNode(msg));
       s.className = 'status' + (isError ? ' error' : '');
     }
   </script>
